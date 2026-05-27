@@ -1,0 +1,21 @@
+# Spring Boot应用配置
+spring:
+  application:
+    name: week1-concurrency-redis  # 应用名称
+  
+  # Redis数据源配置
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}  # Redis主机地址（支持环境变量覆盖）
+      port: ${REDIS_PORT:6379}       # Redis端口（默认6379）
+
+# Web服务器配置
+server:
+  port: 8080  # 应用监听端口
+
+# 自定义业务配置
+week1:
+  flash-sale:
+    # 秒杀商品默认库存键名
+    # Redis中的完整key为："flash:sale:sku-1001"
+    default-stock-key: flash:sale:sku-1001

@@ -1,0 +1,17 @@
+# Docker Compose配置文件
+# 用于快速启动Redis服务（本地开发和测试使用）
+
+services:
+  # Redis服务定义
+  redis:
+    image: redis:7-alpine  # 使用Redis 7的Alpine精简版镜像
+    ports:
+      - "6379:6379"  # 端口映射：宿主机6379 -> 容器6379
+    command: redis-server --appendonly yes  # 启用AOF持久化模式
+    volumes:
+      - redis-data:/data  # 数据卷挂载，确保持久化数据不丢失
+
+# 命名卷定义
+volumes:
+  redis-data:
+    driver: local  # 使用本地存储驱动
