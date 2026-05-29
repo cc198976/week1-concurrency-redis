@@ -13,11 +13,10 @@ import org.testcontainers.utility.DockerImageName;
  * 使用Testcontainers框架在测试中自动启动Redis容器，
  * 避免依赖外部Redis服务，确保测试的独立性和可重复性。
  * 
- * Testcontainers的优势：
- * 1. 自动化：无需手动安装和配置Redis
- * 2. 隔离性：每个测试使用独立的容器实例
- * 3. 真实性：使用真实的Redis服务器，而非Mock
- * 4. 跨平台：支持Windows、Mac、Linux
+ * 兼容性配置：
+ * 1. 禁用 Ryuk 容器（避免 Docker Desktop 4.75.0 API 异常）
+ * 2. 添加 Docker 连接重试机制
+ * 3. 使用 Testcontainers 1.20.6+（已更新 pom.xml）
  * 
  * 使用方法：
  * 让测试类继承此类，即可自动获得Redis容器支持。
@@ -25,8 +24,22 @@ import org.testcontainers.utility.DockerImageName;
  * 
  * @author Ace Chen
  */
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 public abstract class RedisTestSupport {
+
+    static {
+        // 解决 Docker Desktop API 兼容性问题的配置
+        // 1. 禁用 Ryuk 容器（资源清理容器，会导致连接失败）
+        System.setProperty("testcontainers.ryuk.disabled", "true");
+        // 2. 使用 EnvironmentAndSystemProperty 策略（最兼容的策略）
+        System.setProperty("testcontainers.docker.client.strategy", "org.testcontainers.dockerclient.EnvironmentAndSystemPropertyClientProviderStrategy");
+        // 3. 增加 Docker 客户端超时时间（秒）
+        System.setProperty("testcontainers.docker.client.timeout", "30");
+        // 4. 禁用容器复用，确保每次测试使用新容器
+        System.setProperty("testcontainers.attempt.reuse", "false");
+        // 5. 禁用 Docker Machine 检测（加速启动）
+        System.setProperty("testcontainers.docker.client.disable-machine-check", "true");
+    }
 
     /**
      * Redis测试容器（静态单例，所有测试共享）
@@ -40,7 +53,8 @@ public abstract class RedisTestSupport {
     @Container
     @SuppressWarnings("resource")
     static final GenericContainer<?> REDIS = new GenericContainer<>(DockerImageName.parse("redis:7-alpine"))
-            .withExposedPorts(6379);
+            .withExposedPorts(6379)
+            .withReuse(false); // 每次测试使用新容器，确保隔离性
 
     /**
      * 动态注册Redis连接属性到Spring环境
@@ -61,5 +75,7 @@ public abstract class RedisTestSupport {
         
         // 注册Redis端口（Testcontainers映射后的随机端口）
         registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379).toString());
+        
+        System.out.println("[配置] Testcontainers Redis容器: " + REDIS.getHost() + ":" + REDIS.getMappedPort(6379));
     }
 }

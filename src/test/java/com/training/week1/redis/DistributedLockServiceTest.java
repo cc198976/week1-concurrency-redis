@@ -29,6 +29,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 @SpringBootTest
 class DistributedLockServiceTest extends RedisTestSupport {
 
+    static {
+        // 配置已在 RedisTestSupport 基类中设置，无需重复
+    }
+
     /** 注入被测对象：分布式锁服务 */
     @Autowired
     private DistributedLockService lockService;
@@ -39,7 +43,7 @@ class DistributedLockServiceTest extends RedisTestSupport {
      * 测试场景：
      * - 20个线程同时尝试执行临界区代码
      * - 临界区操作：读取计数器值 -> 休眠20ms -> 写入计数器值+1
-     * - 如果没有锁保护，会出现"丢失更新"问题
+     * - 如果没有锁保护，会出现“丢失更新”问题
      * 
      * 预期结果：
      * - 计数器最终值为20（说明所有更新都成功了）
@@ -49,50 +53,60 @@ class DistributedLockServiceTest extends RedisTestSupport {
      */
     @Test
     void serializesCriticalSection() throws InterruptedException {
+        System.out.println("\n========== 开始测试：分布式锁 ==========");
+            
         // 锁的键名（建议使用业务前缀）
         String lockKey = "test:lock:counter";
-        
+            
         // 共享计数器（多线程访问）
         AtomicInteger counter = new AtomicInteger();
-        
+            
         // 线程数量
         int threads = 20;
-        
+            
+        System.out.println("[配置] 线程数: " + threads);
+        System.out.println("[配置] 锁键名: " + lockKey);
+        System.out.println("[配置] 临界区操作: 读取 -> 休眠20ms -> 递增");
+            
         // 创建固定大小的线程池
         ExecutorService pool = Executors.newFixedThreadPool(threads);
-        
+            
         // 同步辅助工具：
         // start：确保所有线程同时开始（模拟高并发）
         // done：等待所有线程执行完毕
-        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch
+                start = new CountDownLatch(1);
         CountDownLatch done = new CountDownLatch(threads);
-
+    
+        System.out.println("\n[执行] 提交 " + threads + " 个并发任务...");
+        long startTime = System.currentTimeMillis();
+            
         // 提交20个并发任务
         for (int i = 0; i < threads; i++) {
             pool.submit(() -> {
                 try {
                     // 等待所有线程就绪后同时开始
                     start.await();
-                    
+                        
                     // 在分布式锁保护下执行临界区代码
                     lockService.executeWithLock(lockKey, 5, 3, () -> {
                         // 步骤1：读取当前值
                         int current = counter.get();
-                        
+                            
                         try {
                             // 步骤2：模拟业务处理时间（放大竞态条件的影响）
                             Thread.sleep(20);
                         } catch (InterruptedException e) {
                             throw new RuntimeException(e);
                         }
-                        
+                            
                         // 步骤3：基于读取的值递增
                         // 如果没有锁，多个线程可能读到相同的current值，导致更新丢失
                         counter.set(current + 1);
-                        
+                            
                         return null;
                     });
-                    
+                        
                 } catch (InterruptedException e) {
                     // 恢复中断状态
                     Thread.currentThread().interrupt();
@@ -102,18 +116,34 @@ class DistributedLockServiceTest extends RedisTestSupport {
                 }
             });
         }
-
+    
         // 启动所有线程（模拟瞬间高并发）
+        System.out.println("[执行] 启动所有线程（模拟高并发）...");
         start.countDown();
-        
+            
         // 等待所有线程执行完毕
         done.await();
-        
+            
+        long endTime = System.currentTimeMillis();
+        long duration = endTime - startTime;
+            
         // 关闭线程池
         pool.shutdownNow();
-
+    
+        System.out.println("\n[完成] 执行耗时: " + duration + "ms");
+        System.out.println("[结果] 计数器最终值: " + counter.get());
+        System.out.println("[预期] 期望值: " + threads);
+            
+        if (counter.get() == threads) {
+            System.out.println("[验证] ✓ 锁机制有效：所有更新都成功，无竞态条件");
+        } else {
+            System.out.println("[验证] ✗ 锁机制失效：发生了竞态条件，丢失了 " + (threads - counter.get()) + " 次更新");
+        }
+    
         // 验证：计数器值应该等于线程数（20）
         // 如果小于20，说明发生了竞态条件（锁未生效）
         assertEquals(threads, counter.get());
+            
+        System.out.println("\n========== 测试通过 ==========\n");
     }
 }

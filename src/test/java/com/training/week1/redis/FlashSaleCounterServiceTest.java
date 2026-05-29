@@ -1,6 +1,6 @@
 package com.training.week1.redis;
 
-import com.training.week1.support.RedisTestSupport;
+import com.training.week1.support.RedisDockerComposeSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,7 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * @author Ace Chen
  */
 @SpringBootTest
-class FlashSaleCounterServiceTest extends RedisTestSupport {
+class FlashSaleCounterServiceTest extends RedisDockerComposeSupport {
 
     /** 注入被测对象：库存计数器服务 */
     @Autowired
@@ -64,17 +64,39 @@ class FlashSaleCounterServiceTest extends RedisTestSupport {
      */
     @Test
     void deductsAtomicallyUntilOutOfStock() {
+        System.out.println("\n========== 开始测试：秒杀计数器（基础功能） ==========");
+        
+        // 初始化库存
+        counterService.initStock(KEY, 10);
+        System.out.println("[初始] 库存: 10");
+        
         // 步骤1：扣减3件库存（应该成功）
-        assertTrue(counterService.tryDeduct(KEY, 3));
+        System.out.println("\n[操作1] 扣减3件...");
+        boolean result1 = counterService.tryDeduct(KEY, 3);
+        System.out.println("  结果: " + (result1 ? "成功" : "失败"));
+        assertTrue(result1);
+        
+        long stock1 = counterService.currentStock(KEY);
+        System.out.println("  当前库存: " + stock1);
         
         // 验证：剩余库存应该是 10 - 3 = 7
-        assertEquals(7, counterService.currentStock(KEY));
+        assertEquals(7, stock1);
+        System.out.println("  ✓ 验证通过: 10 - 3 = 7");
         
         // 步骤2：尝试扣减20件（超过剩余库存，应该失败）
-        assertFalse(counterService.tryDeduct(KEY, 20));
+        System.out.println("\n[操作2] 尝试扣减20件（超过库存）...");
+        boolean result2 = counterService.tryDeduct(KEY, 20);
+        System.out.println("  结果: " + (result2 ? "成功" : "失败"));
+        assertFalse(result2);
+        
+        long stock2 = counterService.currentStock(KEY);
+        System.out.println("  当前库存: " + stock2);
         
         // 验证：库存仍然是7（没有发生变化）
-        assertEquals(7, counterService.currentStock(KEY));
+        assertEquals(7, stock2);
+        System.out.println("  ✓ 验证通过: 库存未变化，仍为7");
+        
+        System.out.println("\n========== 测试通过 ==========\n");
     }
 
     /**
@@ -98,12 +120,20 @@ class FlashSaleCounterServiceTest extends RedisTestSupport {
      */
     @Test
     void concurrentDeductNeverGoesNegative() throws InterruptedException {
+        System.out.println("\n========== 开始测试：秒杀计数器（高并发） ==========");
+        
         // 步骤1：初始化库存为100
         counterService.initStock(KEY, 100);
+        System.out.println("[初始] 库存: 100");
         
         // 并发参数配置
         int threads = 50;              // 线程数
         int attemptsPerThread = 4;     // 每个线程尝试扣减的次数
+        int totalAttempts = threads * attemptsPerThread;
+        
+        System.out.println("[配置] 线程数: " + threads);
+        System.out.println("[配置] 每线程尝试次数: " + attemptsPerThread);
+        System.out.println("[配置] 总请求数: " + totalAttempts);
         
         // 创建线程池
         ExecutorService pool = Executors.newFixedThreadPool(threads);
@@ -115,6 +145,9 @@ class FlashSaleCounterServiceTest extends RedisTestSupport {
         // 成功计数器（线程安全）
         AtomicInteger success = new AtomicInteger();
 
+        System.out.println("\n[执行] 提交 " + threads + " 个并发任务...");
+        long startTime = System.currentTimeMillis();
+        
         // 步骤2：提交50个并发任务
         for (int i = 0; i < threads; i++) {
             pool.submit(() -> {
@@ -140,19 +173,32 @@ class FlashSaleCounterServiceTest extends RedisTestSupport {
         }
 
         // 步骤3：启动所有线程（模拟瞬间高并发）
+        System.out.println("[执行] 启动所有线程（模拟秒杀瞬间）...");
         start.countDown();
         
         // 等待所有线程执行完毕
         done.await();
         
+        long endTime = System.currentTimeMillis();
+        long duration = endTime - startTime;
+        
         // 关闭线程池
         pool.shutdownNow();
 
+        System.out.println("\n[完成] 执行耗时: " + duration + "ms");
+        System.out.println("[结果] 成功扣减次数: " + success.get());
+        System.out.println("[结果] 失败次数: " + (totalAttempts - success.get()));
+        System.out.println("[结果] 最终库存: " + counterService.currentStock(KEY));
+
         // 步骤4：验证结果
-        // 验证1：成功扣减次数应该等于初始库存（100次）
+        System.out.println("\n[验证1] 成功扣减次数是否等于初始库存？");
         assertEquals(100, success.get());
+        System.out.println("  ✓ 通过: " + success.get() + " == 100");
         
-        // 验证2：最终库存应该为0（不会超卖）
+        System.out.println("\n[验证2] 最终库存是否为0（无超卖）？");
         assertEquals(0, counterService.currentStock(KEY));
+        System.out.println("  ✓ 通过: 库存 = 0，未出现超卖");
+        
+        System.out.println("\n========== 测试通过 ==========\n");
     }
 }
